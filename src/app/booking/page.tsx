@@ -1,56 +1,80 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import Link from 'next/link'
+import { supabase, useUser } from '@/lib/supabase'
 
-export default function Booking() {
+const PENDING_BOOKING_KEY = 'greenloft_pending_booking'
+
+function BookingContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [user, setUser] = useState<any>(null)
+  const { user, loading: userLoading } = useUser()
+
   const [selectedRoom, setSelectedRoom] = useState<any>(null)
+  const [roomLoading, setRoomLoading] = useState(true)
   const [startDate, setStartDate] = useState('')
   const [durationMonths, setDurationMonths] = useState(1)
   const [price, setPrice] = useState(0)
   const [discount, setDiscount] = useState(0)
   const [total, setTotal] = useState(0)
-  const [deposit, setDeposit] = useState(250000)
-  const [loading, setLoading] = useState(false)
+  const [deposit] = useState(250000)
+  const [submitting, setSubmitting] = useState(false)
+  const [restoredNotice, setRestoredNotice] = useState(false)
 
+  const roomId = searchParams.get('room')
+
+  // Fetch the room — no auth required, browsing is open to everyone.
   useEffect(() => {
-    checkAuth()
-    if (searchParams.get('room')) {
-      fetchRoom(parseInt(searchParams.get('room')!))
-    }
-  }, [searchParams])
-
-  const checkAuth = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      router.push('/auth/login?redirect=/booking')
+    if (!roomId) {
+      router.push('/rooms')
       return
     }
-    setUser(user)
-  }
+    fetchRoom(parseInt(roomId))
+  }, [roomId])
 
-  const fetchRoom = async (roomId: number) => {
-    const { data } = await supabase.from('rooms').select('*').eq('id', roomId).single()
+  // Once we know whether someone is logged in, restore any booking they
+  // started before being asked to log in to pay.
+  useEffect(() => {
+    if (userLoading || !user || !selectedRoom) return
+
+    const raw = sessionStorage.getItem(PENDING_BOOKING_KEY)
+    if (!raw) return
+
+    try {
+      const pending = JSON.parse(raw)
+      if (pending.roomId === selectedRoom.id) {
+        setStartDate(pending.startDate || '')
+        setDurationMonths(pending.durationMonths || 1)
+        calculatePrice(selectedRoom, pending.durationMonths || 1)
+        setRestoredNotice(true)
+      }
+      sessionStorage.removeItem(PENDING_BOOKING_KEY)
+    } catch {
+      sessionStorage.removeItem(PENDING_BOOKING_KEY)
+    }
+  }, [userLoading, user, selectedRoom])
+
+  const fetchRoom = async (id: number) => {
+    const { data } = await supabase.from('rooms').select('*').eq('id', id).single()
     setSelectedRoom(data)
-    calculatePrice(data, durationMonths)
+    if (data) calculatePrice(data, durationMonths)
+    setRoomLoading(false)
   }
 
   const calculatePrice = (room: any, months: number) => {
     if (!room) return
-    let price = room.price_per_month * months
+    let calculatedPrice = room.price_per_month * months
     let discountAmount = 0
-    
+
     if (months >= 12) {
-      discountAmount = Math.floor(price * 0.15)
-      price -= discountAmount
+      discountAmount = Math.floor(calculatedPrice * 0.15)
+      calculatedPrice -= discountAmount
     }
 
-    setPrice(price)
+    setPrice(calculatedPrice)
     setDiscount(discountAmount)
-    setTotal(price + deposit)
+    setTotal(calculatedPrice + deposit)
   }
 
   const handleDurationChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -59,9 +83,23 @@ export default function Booking() {
     calculatePrice(selectedRoom, months)
   }
 
-  const handleSubmit = async () => {
-    setLoading(true)
-    
+  const handleConfirm = async () => {
+    if (!selectedRoom || !startDate) return
+
+    // Booking details only require login at this final step — save them
+    // and send the person to log in / register, then bring them right back.
+    if (!user) {
+      sessionStorage.setItem(
+        PENDING_BOOKING_KEY,
+        JSON.stringify({ roomId: selectedRoom.id, startDate, durationMonths })
+      )
+      const returnTo = `/booking?room=${selectedRoom.id}`
+      router.push(`/auth/login?redirect=${encodeURIComponent(returnTo)}`)
+      return
+    }
+
+    setSubmitting(true)
+
     const endDate = new Date(startDate)
     endDate.setMonth(endDate.getMonth() + durationMonths)
 
@@ -74,35 +112,56 @@ export default function Booking() {
         duration_months: durationMonths,
         total_amount: total,
         payment_status: 'pending',
-      }
+      },
     ])
 
     if (error) {
-      alert(error.message)
+      alert('Error: ' + error.message)
+      setSubmitting(false)
     } else {
       router.push('/dashboard')
     }
-    
-    setLoading(false)
   }
 
-  if (!selectedRoom) return <div className="flex items-center justify-center h-screen">Loading...</div>
+  if (roomLoading) {
+    return <div className="flex items-center justify-center h-screen">Loading...</div>
+  }
+
+  if (!selectedRoom) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-16 text-center">
+        <p className="text-gray-600 mb-4">Kamar tidak ditemukan.</p>
+        <Link href="/rooms" className="bg-[#4CAF50] text-white px-6 py-3 rounded-lg font-semibold">
+          Lihat Kamar Lain
+        </Link>
+      </div>
+    )
+  }
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-12">
-      <h1 className="text-4xl font-bold mb-8">Booking <span className="text-[#4CAF50]">{selectedRoom.number}</span></h1>
+      <h1 className="font-display text-4xl font-medium mb-2 text-[#0f2e1f]">
+        Booking <span className="text-[#4CAF50]">{selectedRoom.number}</span>
+      </h1>
+      <p className="text-gray-500 mb-8 capitalize">Tipe {selectedRoom.type}</p>
+
+      {restoredNotice && (
+        <div className="mb-6 p-4 bg-green-50 border border-green-200 text-green-700 rounded-lg">
+          Selamat datang kembali! Data booking kamu sudah dilanjutkan — cek detail di bawah lalu konfirmasi.
+        </div>
+      )}
 
       <div className="bg-white p-6 rounded-xl shadow mb-6">
         <h2 className="text-xl font-semibold mb-4">Detail Kamar</h2>
         <div className="grid grid-cols-2 gap-4">
-          <div><strong>Tipe:</strong> {selectedRoom.type}</div>
+          <div><strong>Tipe:</strong> <span className="capitalize">{selectedRoom.type}</span></div>
           <div><strong>Harga/Bulan:</strong> Rp {selectedRoom.price_per_month.toLocaleString('id-ID')}</div>
         </div>
       </div>
 
       <div className="bg-white p-6 rounded-xl shadow mb-6">
         <h2 className="text-xl font-semibold mb-4">Pilihan</h2>
-        
+
         <div className="mb-4">
           <label className="block text-sm font-semibold mb-2">Tanggal Mulai</label>
           <input
@@ -150,13 +209,33 @@ export default function Booking() {
         </div>
       </div>
 
+      {!userLoading && !user && (
+        <p className="text-sm text-gray-500 mb-3 text-center">
+          Kamu bisa isi tanggal & durasi tanpa login. Login hanya diminta saat kamu siap membayar.
+        </p>
+      )}
+
       <button
-        onClick={handleSubmit}
-        disabled={!startDate || loading}
+        onClick={handleConfirm}
+        disabled={!startDate || submitting}
         className="w-full bg-[#4CAF50] text-white py-4 rounded-lg font-semibold hover:bg-[#45a049] disabled:opacity-50"
       >
-        {loading ? 'Processing...' : 'Lanjut ke Payment'}
+        {submitting
+          ? 'Processing...'
+          : !startDate
+          ? 'Pilih tanggal dulu'
+          : !user
+          ? 'Login untuk Lanjut ke Payment'
+          : 'Lanjut ke Payment'}
       </button>
     </div>
+  )
+}
+
+export default function Booking() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-screen">Loading...</div>}>
+      <BookingContent />
+    </Suspense>
   )
 }

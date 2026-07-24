@@ -1,9 +1,9 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
-export default function Booking() {
+function BookingContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [user, setUser] = useState<any>(null)
@@ -17,57 +17,40 @@ export default function Booking() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  console.log('🔵 Booking page render')
-
   useEffect(() => {
-    console.log('🟢 useEffect triggered')
     const init = async () => {
       try {
-        console.log('🟡 Checking auth...')
         const { data: { user } } = await supabase.auth.getUser()
-        console.log('🔵 User:', user?.email)
-        
         if (!user) {
-          console.log('🔴 No user, redirecting...')
           router.push('/auth/login?redirect=/booking')
           return
         }
         setUser(user)
 
         const roomId = searchParams.get('room')
-        console.log('🟠 Room ID param:', roomId)
-        
         if (!roomId) {
-          console.log('🔴 No room ID, redirecting to rooms...')
           router.push('/rooms')
           return
         }
 
-        console.log('🟡 Fetching room:', roomId)
         const { data, error } = await supabase
           .from('rooms')
           .select('*')
           .eq('id', parseInt(roomId))
           .single()
 
-        if (error) {
-          console.error('❌ Supabase error:', error)
-          throw error
-        }
+        if (error) throw error
 
         if (!data) {
-          console.log('🔴 Room not found')
           alert('Kamar tidak ditemukan!')
           router.push('/rooms')
           return
         }
 
-        console.log('🟢 Room loaded:', data)
         setSelectedRoom(data)
         calculatePrice(data, durationMonths)
         setLoading(false)
       } catch (err: any) {
-        console.error('💥 Error:', err)
         setError(err.message || 'Something went wrong')
         setLoading(false)
       }
@@ -89,7 +72,6 @@ export default function Booking() {
     setPrice(calculatedPrice)
     setDiscount(discountAmount)
     setTotal(calculatedPrice + deposit)
-    console.log('💰 Price calc:', { price: calculatedPrice, discount: discountAmount, total: calculatedPrice + deposit })
   }
 
   const handleDurationChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -110,7 +92,6 @@ export default function Booking() {
     const endDate = new Date(startDate)
     endDate.setMonth(endDate.getMonth() + durationMonths)
 
-    console.log('🟡 Inserting booking...')
     const { error } = await supabase.from('bookings').insert([
       {
         room_id: selectedRoom.id,
@@ -124,11 +105,9 @@ export default function Booking() {
     ])
 
     if (error) {
-      console.error('❌ Booking error:', error)
       setError('Error: ' + error.message)
       setLoading(false)
     } else {
-      console.log('✅ Booking success!')
       alert('✅ Booking berhasil! Check dashboard Anda.')
       router.push('/dashboard')
     }
@@ -229,5 +208,13 @@ export default function Booking() {
         {!startDate ? 'Pilih tanggal dulu!' : '✅ Confirm & Continue'}
       </button>
     </div>
+  )
+}
+
+export default function Booking() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-screen">Loading...</div>}>
+      <BookingContent />
+    </Suspense>
   )
 }

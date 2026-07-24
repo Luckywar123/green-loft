@@ -3,10 +3,15 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 
+const roomImages: Record<'premium' | 'presidential', string> = {
+  premium: '/images/rooms/premium.jpg',
+  presidential: '/images/rooms/presidential.jpg',
+}
+
 export default function Rooms() {
   const [rooms, setRooms] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState<'all' | 'standard' | 'premium' | 'suite'>('all')
+  const [filter, setFilter] = useState<'all' | 'premium' | 'presidential'>('all')
 
   useEffect(() => {
     fetchRooms()
@@ -24,15 +29,7 @@ export default function Rooms() {
 
   const filteredRooms = filter === 'all' ? rooms : rooms.filter(r => r.type === filter)
 
-  // Placeholder image generator
-  const getRoomImage = (type: string, index: number) => {
-    const colors = {
-      standard: '252525',
-      premium: '4CAF50',
-      suite: 'FF9800'
-    }
-    return `https://placehold.co/600x400/${colors[type as keyof typeof colors]}/ffffff?text=Room+${index + 1}`
-  }
+  const getRoomImage = (type: string) => roomImages[type as 'premium' | 'presidential'] || roomImages.premium
 
   if (loading) return (
     <div className="flex items-center justify-center h-screen">
@@ -43,24 +40,24 @@ export default function Rooms() {
   return (
     <div className="max-w-7xl mx-auto px-4 py-16">
       <div className="text-center mb-12">
-        <h1 className="text-5xl font-bold mb-4 bg-gradient-to-r from-[#4CAF50] to-green-700 bg-clip-text text-transparent">
+        <h1 className="font-display text-5xl font-medium mb-4 bg-gradient-to-r from-[#4CAF50] to-green-700 bg-clip-text text-transparent">
           Pilih <span className="text-gray-800">Kamar</span>
         </h1>
         <p className="text-xl text-gray-600">Pilih kamar impianmu sekarang!</p>
       </div>
-      
+
       <div className="flex justify-center gap-4 mb-12 flex-wrap">
-        {(['all', 'standard', 'premium', 'suite'] as const).map(type => (
+        {(['all', 'premium', 'presidential'] as const).map(type => (
           <button
             key={type}
             onClick={() => setFilter(type)}
-            className={`px-8 py-3 rounded-full font-bold text-lg transition-all ${
-              filter === type 
-                ? 'bg-[#4CAF50] text-white shadow-lg scale-110' 
+            className={`px-8 py-3 rounded-full font-bold text-lg capitalize transition-all ${
+              filter === type
+                ? 'bg-[#4CAF50] text-white shadow-lg scale-110'
                 : 'bg-white text-gray-700 border-2 border-gray-300 hover:border-[#4CAF50] hover:text-[#4CAF50]'
             }`}
           >
-            {type.charAt(0).toUpperCase() + type.slice(1)}
+            {type === 'all' ? 'All' : type}
           </button>
         ))}
       </div>
@@ -73,12 +70,12 @@ export default function Rooms() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {filteredRooms.map((room, index) => (
+          {filteredRooms.map((room) => (
             <div key={room.id} className="card-premium overflow-hidden group">
               {/* Image section */}
               <div className="relative h-56 overflow-hidden">
-                <img 
-                  src={getRoomImage(room.type, index)}
+                <img
+                  src={getRoomImage(room.type)}
                   alt={`Room ${room.number}`}
                   className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                 />
@@ -88,12 +85,12 @@ export default function Rooms() {
                     room.status === 'occupied' ? 'bg-blue-500 text-white' :
                     'bg-yellow-500 text-white'
                   }`}>
-                    {room.status === 'vacant' ? '✓ Tersedia' : 
+                    {room.status === 'vacant' ? '✓ Tersedia' :
                      room.status === 'occupied' ? 'Terisi' : 'Reserved'}
                   </span>
                 </div>
-                <div className="absolute bottom-4 left-4 bg-black/70 text-white px-4 py-2 rounded-lg font-bold">
-                  Floor {room.floor}
+                <div className="absolute bottom-4 left-4 bg-black/70 text-white px-4 py-2 rounded-lg font-bold capitalize">
+                  {room.type} · Floor {room.floor}
                 </div>
               </div>
 
@@ -118,7 +115,7 @@ export default function Rooms() {
                   </div>
                 </div>
 
-                <Link 
+                <Link
                   href={`/booking?room=${room.id}`}
                   className="block w-full btn-glow text-white py-4 rounded-xl font-bold text-lg text-center"
                 >

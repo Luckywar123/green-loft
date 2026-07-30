@@ -1,6 +1,12 @@
 -- ============================================
--- GREEN LOFT - FIXED DATABASE SCHEMA
+-- GREEN LOFT - INITIAL SCHEMA (as originally provided)
 -- ============================================
+-- This is a copy of your project's original 001_initial_schema.sql,
+-- included here so this migrations folder is self-contained. If you
+-- already have this exact file elsewhere and have already run it, you
+-- don't need to run this copy again — running it twice on the same
+-- database will fail with "relation already exists" errors, which is
+-- expected and harmless (it just means the tables are already there).
 
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -45,14 +51,14 @@ CREATE TABLE rooms (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- BOOKINGS TABLE (FIXED: duration_months is NOT generated anymore)
+-- BOOKINGS TABLE
 CREATE TABLE bookings (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   room_id INTEGER REFERENCES rooms(id) ON DELETE RESTRICT,
   user_id UUID REFERENCES users(id) ON DELETE CASCADE,
   start_date DATE NOT NULL,
   end_date DATE NOT NULL,
-  duration_months INTEGER NOT NULL,  -- Changed from GENERATED to regular column
+  duration_months INTEGER NOT NULL,
   deposit_amount INTEGER DEFAULT 250000,
   total_amount INTEGER NOT NULL,
   payment_status payment_status DEFAULT 'pending',
@@ -218,7 +224,9 @@ CREATE TRIGGER update_bookings_updated_at BEFORE UPDATE ON bookings
 CREATE TRIGGER update_contracts_updated_at BEFORE UPDATE ON contracts
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- SEED DATA: 15 KAMAR
+-- SEED DATA: 15 KAMAR (original 3-tier version — migration 002 replaces
+-- this with the Premium/Presidential 2-tier system, so it's fine that
+-- this seed data gets superseded a moment later when 002 runs)
 INSERT INTO rooms (number, type, price_per_month, price_per_year, floor, status, amenities, description) VALUES
   ('Room 01', 'standard', 2500000, 27000000, 1, 'vacant', ARRAY['AC', 'WiFi', 'Furniture', 'Shower'], 'Kamar standar nyaman'),
   ('Room 02', 'standard', 2500000, 27000000, 1, 'vacant', ARRAY['AC', 'WiFi', 'Furniture', 'Shower'], 'Kamar standar dekat parkiran'),

@@ -13,12 +13,12 @@ const facilities = [
 ]
 
 const gallery = [
-  { src: '/images/gallery/pool-day.jpg', alt: 'Kolam renang Green Loft di siang hari' },
-  { src: '/images/gallery/pool-night.jpg', alt: 'Taman & kolam renang Green Loft di malam hari' },
-  { src: '/images/gallery/gym.jpg', alt: 'Gym Green Loft dengan pemandangan kota' },
-  { src: '/images/gallery/room-interior.jpg', alt: 'Interior kamar Green Loft' },
-  { src: '/images/gallery/common-area.jpg', alt: 'Ruang bersama Green Loft' },
-  { src: '/images/gallery/balcony.jpg', alt: 'Koridor & balkon Green Loft' },
+  { src: '/images/gallery/pool-day.jpg', alt: 'Kolam renang Green Loft di siang hari', caption: 'Kolam Renang' },
+  { src: '/images/gallery/pool-dusk.jpg', alt: 'Kolam renang Green Loft saat senja', caption: 'Kolam Renang — Senja' },
+  { src: '/images/gallery/gym.jpg', alt: 'Gym Green Loft dengan pemandangan kota', caption: 'Gym & Fitness' },
+  { src: '/images/gallery/room-interior.jpg', alt: 'Interior kamar Green Loft', caption: 'Interior Kamar' },
+  { src: '/images/gallery/common-area.jpg', alt: 'Ruang bersama Green Loft', caption: 'Ruang Bersama' },
+  { src: '/images/gallery/hallway.jpg', alt: 'Koridor kamar Green Loft', caption: 'Koridor Kamar' },
 ]
 
 const tiers = [
@@ -70,6 +70,7 @@ export default function Home() {
           alt="Green Loft di waktu senja"
           fill
           priority
+          sizes="100vw"
           className="object-cover"
         />
         <div className="absolute inset-0 bg-gradient-to-b from-[#0a2016]/80 via-[#0a2016]/70 to-[#0a2016]/95" />
@@ -150,9 +151,19 @@ export default function Home() {
             {gallery.map((g, i) => (
               <div
                 key={i}
-                className={`gallery-frame relative h-48 md:h-64 ${i === 0 ? 'col-span-2 h-56 md:h-80' : ''}`}
+                className={`gallery-frame relative h-48 md:h-64 group ${i === 0 ? 'col-span-2 h-56 md:h-80' : ''}`}
               >
-                <Image src={g.src} alt={g.alt} fill className="object-cover" />
+                <Image
+                  src={g.src}
+                  alt={g.alt}
+                  fill
+                  sizes={i === 0 ? '(max-width: 768px) 100vw, 66vw' : '(max-width: 768px) 50vw, 33vw'}
+                  className="object-cover transition-transform duration-500 group-hover:scale-105"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#0f2e1f]/60 via-[#0f2e1f]/10 to-transparent" />
+                <span className="absolute bottom-3 left-4 text-white font-display text-sm md:text-base tracking-wide">
+                  {g.caption}
+                </span>
               </div>
             ))}
           </div>
@@ -185,7 +196,7 @@ export default function Home() {
                   </div>
                 )}
                 <div className="relative h-56">
-                  <Image src={tier.image} alt={`Kamar tipe ${tier.name}`} fill className="object-cover" />
+                  <Image src={tier.image} alt={`Kamar tipe ${tier.name}`} fill sizes="(max-width: 768px) 100vw, 50vw" className="object-cover" />
                 </div>
                 <div className="p-8">
                   <h3 className="font-display text-2xl font-semibold text-[#0f2e1f] mb-1">{tier.name}</h3>
@@ -254,7 +265,7 @@ export default function Home() {
       {/* FINAL CTA */}
       <section className="py-20 bg-[#0f2e1f] relative overflow-hidden">
         <div className="absolute inset-0 opacity-10">
-          <Image src="/images/gallery/pool-night.jpg" alt="" fill className="object-cover" />
+          <Image src="/images/gallery/pool-dusk.jpg" alt="" fill sizes="100vw" className="object-cover" />
         </div>
         <div className="relative max-w-4xl mx-auto px-4 text-center text-white">
           <h2 className="font-display text-3xl md:text-4xl font-medium mb-4">Siap untuk Tinggal?</h2>

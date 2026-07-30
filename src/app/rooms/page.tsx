@@ -95,7 +95,13 @@ function RoomsContent() {
                     <span key={i} className="text-xs bg-gray-100 px-3 py-1 rounded-full">{amenity}</span>
                   ))}
                 </div>
-                <Link href={`/booking?room=${room.id}`} className="block w-full text-center bg-[#4CAF50] text-white py-3 rounded-lg font-semibold hover:bg-[#45a049]">Booking Sekarang</Link>
+                {room.status === 'vacant' ? (
+                  <Link href={`/booking?room=${room.id}`} className="block w-full text-center bg-[#4CAF50] text-white py-3 rounded-lg font-semibold hover:bg-[#45a049]">Booking Sekarang</Link>
+                ) : (
+                  <button disabled className="block w-full text-center bg-gray-200 text-gray-500 py-3 rounded-lg font-semibold cursor-not-allowed">
+                    Sudah Terisi
+                  </button>
+                )}
               </div>
             </div>
           ))}

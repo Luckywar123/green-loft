@@ -18,15 +18,34 @@ function LoginForm() {
     setError('')
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
 
       if (error) throw error
 
-      const redirect = searchParams.get('redirect') || '/dashboard'
-      router.push(redirect)
+      // An explicit `redirect` param (e.g. coming back from the booking
+      // flow) always wins — that's an intentional destination.
+      const explicitRedirect = searchParams.get('redirect')
+      if (explicitRedirect) {
+        router.push(explicitRedirect)
+        return
+      }
+
+      // Otherwise, send admins to the admin dashboard and everyone else
+      // to their tenant dashboard.
+      const { data: profile } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', data.user.id)
+        .single()
+
+      if (profile?.role === 'admin' || profile?.role === 'crypto_admin') {
+        router.push('/admin')
+      } else {
+        router.push('/dashboard')
+      }
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -37,7 +56,13 @@ function LoginForm() {
   return (
     <div className="min-h-[calc(100vh-200px)] flex items-center justify-center px-4">
       <div className="bg-white p-8 rounded-xl shadow-lg max-w-md w-full">
-        <h1 className="text-3xl font-bold mb-6 text-center">Login</h1>
+        <h1 className="font-display text-3xl font-medium mb-6 text-center text-[#0f2e1f]">Login</h1>
+
+        {searchParams.get('registered') === 'true' && (
+          <div className="bg-green-50 border border-green-200 text-green-700 p-4 rounded-lg mb-6 text-sm">
+            📧 Registrasi berhasil! Cek email kamu untuk verifikasi, lalu login di sini.
+          </div>
+        )}
         
         {error && (
           <div className="bg-red-100 text-red-700 p-4 rounded-lg mb-6">{error}</div>

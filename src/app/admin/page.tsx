@@ -1,131 +1,143 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 
-const roomImages: Record<'premium' | 'presidential', string> = {
-  premium: '/images/rooms/premium.jpg',
-  presidential: '/images/rooms/presidential.jpg',
-}
-
-export default function Rooms() {
-  const [rooms, setRooms] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState<'all' | 'premium' | 'presidential'>('all')
+export default function AdminDashboard() {
+  const router = useRouter()
+  const [checking, setChecking] = useState(true)
+  const [stats, setStats] = useState({
+    totalRooms: 0,
+    vacantRooms: 0,
+    occupiedRooms: 0,
+    pendingPayments: 0,
+    pendingCrypto: 0,
+    unreadMessages: 0,
+    totalBookings: 0,
+  })
 
   useEffect(() => {
-    fetchRooms()
+    checkAdmin()
   }, [])
 
-  const fetchRooms = async () => {
-    const { data, error } = await supabase.from('rooms').select('*').order('id')
-    if (error) {
-      console.error('Error fetching rooms:', error)
-      alert('Error: ' + error.message)
+  const checkAdmin = async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { router.push('/auth/login?redirect=/admin'); return }
+
+    const { data: userData } = await supabase.from('users').select('role').eq('id', user.id).single()
+    if (userData?.role !== 'admin' && userData?.role !== 'crypto_admin') {
+      router.push('/')
+      return
     }
-    setRooms(data || [])
-    setLoading(false)
+
+    setChecking(false)
+    fetchStats()
   }
 
-  const filteredRooms = filter === 'all' ? rooms : rooms.filter(r => r.type === filter)
+  const fetchStats = async () => {
+    const { data: rooms } = await supabase.from('rooms').select('status')
+    const totalRooms = rooms?.length || 0
+    const vacantRooms = rooms?.filter((r) => r.status === 'vacant').length || 0
+    const occupiedRooms = rooms?.filter((r) => r.status === 'occupied').length || 0
 
-  const getRoomImage = (type: string) => roomImages[type as 'premium' | 'presidential'] || roomImages.premium
+    const { count: pendingPayments } = await supabase
+      .from('payments')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'pending')
 
-  if (loading) return (
-    <div className="flex items-center justify-center h-screen">
-      <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-[#4CAF50]"></div>
-    </div>
-  )
+    const { count: pendingCrypto } = await supabase
+      .from('crypto_transactions')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'pending')
+
+    const { count: unreadMessages } = await supabase
+      .from('messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('sender_role', 'tenant')
+      .is('read_at', null)
+
+    const { count: totalBookings } = await supabase
+      .from('bookings')
+      .select('id', { count: 'exact', head: true })
+
+    setStats({
+      totalRooms,
+      vacantRooms,
+      occupiedRooms,
+      pendingPayments: pendingPayments || 0,
+      pendingCrypto: pendingCrypto || 0,
+      unreadMessages: unreadMessages || 0,
+      totalBookings: totalBookings || 0,
+    })
+  }
+
+  if (checking) return <div className="flex items-center justify-center h-screen">Loading...</div>
+
+  const pendingTotal = stats.pendingPayments + stats.pendingCrypto
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-16">
-      <div className="text-center mb-12">
-        <h1 className="font-display text-5xl font-medium mb-4 bg-gradient-to-r from-[#4CAF50] to-green-700 bg-clip-text text-transparent">
-          Pilih <span className="text-gray-800">Kamar</span>
-        </h1>
-        <p className="text-xl text-gray-600">Pilih kamar impianmu sekarang!</p>
+    <div className="max-w-6xl mx-auto px-4 py-12">
+      <h1 className="font-display text-4xl font-medium mb-2 text-[#0f2e1f]">Admin Dashboard</h1>
+      <p className="text-gray-500 mb-10">Ringkasan Green Loft</p>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
+        <StatCard label="Total Kamar" value={stats.totalRooms} />
+        <StatCard label="Kamar Vacant" value={stats.vacantRooms} accent="text-green-600" />
+        <StatCard label="Kamar Occupied" value={stats.occupiedRooms} accent="text-blue-600" />
+        <StatCard label="Total Booking" value={stats.totalBookings} />
       </div>
 
-      <div className="flex justify-center gap-4 mb-12 flex-wrap">
-        {(['all', 'premium', 'presidential'] as const).map(type => (
-          <button
-            key={type}
-            onClick={() => setFilter(type)}
-            className={`px-8 py-3 rounded-full font-bold text-lg capitalize transition-all ${
-              filter === type
-                ? 'bg-[#4CAF50] text-white shadow-lg scale-110'
-                : 'bg-white text-gray-700 border-2 border-gray-300 hover:border-[#4CAF50] hover:text-[#4CAF50]'
-            }`}
-          >
-            {type === 'all' ? 'All' : type}
-          </button>
-        ))}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Link href="/admin/rooms" className="card-luxury p-6 hover:-translate-y-1 transition-transform">
+          <div className="text-3xl mb-3">🏠</div>
+          <h3 className="font-semibold text-lg mb-1">Kelola Kamar</h3>
+          <p className="text-sm text-gray-500">Lihat & ubah status vacant/occupied tiap kamar secara manual.</p>
+        </Link>
+
+        <Link href="/admin/reports" className="card-luxury p-6 hover:-translate-y-1 transition-transform">
+          <div className="text-3xl mb-3">📊</div>
+          <h3 className="font-semibold text-lg mb-1">Laporan Transaksi</h3>
+          <p className="text-sm text-gray-500">Tabel semua booking, bukti pembayaran, status, dan deposit.</p>
+        </Link>
+
+        <Link href="/admin/payments" className="card-luxury p-6 hover:-translate-y-1 transition-transform relative">
+          {pendingTotal > 0 && (
+            <span className="absolute top-4 right-4 bg-red-500 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center">
+              {pendingTotal}
+            </span>
+          )}
+          <div className="text-3xl mb-3">🕓</div>
+          <h3 className="font-semibold text-lg mb-1">Antrean Verifikasi</h3>
+          <p className="text-sm text-gray-500">Payment & crypto yang menunggu di-approve.</p>
+        </Link>
+
+        <Link href="/admin/messages" className="card-luxury p-6 hover:-translate-y-1 transition-transform relative">
+          {stats.unreadMessages > 0 && (
+            <span className="absolute top-4 right-4 bg-red-500 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center">
+              {stats.unreadMessages}
+            </span>
+          )}
+          <div className="text-3xl mb-3">💬</div>
+          <h3 className="font-semibold text-lg mb-1">Pesan Tenant</h3>
+          <p className="text-sm text-gray-500">Chat masuk dari tenant yang perlu dibalas.</p>
+        </Link>
+
+        <Link href="/rooms" className="card-luxury p-6 hover:-translate-y-1 transition-transform">
+          <div className="text-3xl mb-3">👁️</div>
+          <h3 className="font-semibold text-lg mb-1">Lihat Situs Publik</h3>
+          <p className="text-sm text-gray-500">Buka halaman kamar seperti yang dilihat calon tenant.</p>
+        </Link>
       </div>
+    </div>
+  )
+}
 
-      {filteredRooms.length === 0 ? (
-        <div className="text-center py-16 bg-white rounded-2xl shadow">
-          <div className="text-6xl mb-4">🏠</div>
-          <h3 className="text-2xl font-bold mb-2">Tidak ada kamar tersedia</h3>
-          <p className="text-gray-600">Silakan cek kembali nanti atau hubungi admin</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {filteredRooms.map((room) => (
-            <div key={room.id} className="card-premium overflow-hidden group">
-              {/* Image section */}
-              <div className="relative h-56 overflow-hidden">
-                <img
-                  src={getRoomImage(room.type)}
-                  alt={`Room ${room.number}`}
-                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                />
-                <div className="absolute top-4 right-4">
-                  <span className={`px-4 py-2 rounded-full text-sm font-bold shadow-lg ${
-                    room.status === 'vacant' ? 'bg-green-500 text-white' :
-                    room.status === 'occupied' ? 'bg-blue-500 text-white' :
-                    'bg-yellow-500 text-white'
-                  }`}>
-                    {room.status === 'vacant' ? '✓ Tersedia' :
-                     room.status === 'occupied' ? 'Terisi' : 'Reserved'}
-                  </span>
-                </div>
-                <div className="absolute bottom-4 left-4 bg-black/70 text-white px-4 py-2 rounded-lg font-bold capitalize">
-                  {room.type} · Floor {room.floor}
-                </div>
-              </div>
-
-              {/* Content */}
-              <div className="p-6">
-                <div className="flex justify-between items-start mb-4">
-                  <h3 className="text-3xl font-bold text-gray-800">Room {room.number}</h3>
-                  <div className="text-right">
-                    <div className="text-2xl font-bold text-[#4CAF50]">Rp {room.price_per_month.toLocaleString('id-ID')}</div>
-                    <div className="text-sm text-gray-500">per bulan</div>
-                  </div>
-                </div>
-
-                <div className="mb-4 pb-4 border-b">
-                  <div className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-2">Amenities</div>
-                  <div className="flex flex-wrap gap-2">
-                    {(room.amenities || []).slice(0, 5).map((amenity: string, i: number) => (
-                      <span key={i} className="text-xs bg-green-50 text-[#4CAF50] px-3 py-1.5 rounded-full font-medium">
-                        {amenity}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-
-                <Link
-                  href={`/booking?room=${room.id}`}
-                  className="block w-full btn-glow text-white py-4 rounded-xl font-bold text-lg text-center"
-                >
-                  Booking Sekarang ✨
-                </Link>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+function StatCard({ label, value, accent }: { label: string; value: number; accent?: string }) {
+  return (
+    <div className="bg-white rounded-xl shadow p-5 text-center">
+      <div className={`text-3xl font-bold ${accent || 'text-[#0f2e1f]'}`}>{value}</div>
+      <div className="text-xs text-gray-500 mt-1">{label}</div>
     </div>
   )
 }

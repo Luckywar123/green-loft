@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { supabase, useUser } from '@/lib/supabase'
 
 const PENDING_BOOKING_KEY = 'greenloft_pending_booking'
+const DEPOSIT_AMOUNT = 250000
 
 function BookingContent() {
   const router = useRouter()
@@ -16,9 +17,9 @@ function BookingContent() {
   const [startDate, setStartDate] = useState('')
   const [durationMonths, setDurationMonths] = useState(1)
   const [price, setPrice] = useState(0)
-  const [discount, setDiscount] = useState(0)
+  const [depositRequired, setDepositRequired] = useState(true)
+  const [depositChecked, setDepositChecked] = useState(false)
   const [total, setTotal] = useState(0)
-  const [deposit] = useState(250000)
   const [submitting, setSubmitting] = useState(false)
   const [restoredNotice, setRestoredNotice] = useState(false)
 
@@ -33,8 +34,20 @@ function BookingContent() {
     fetchRoom(parseInt(roomId))
   }, [roomId])
 
-  // Once we know whether someone is logged in, restore any booking they
-  // started before being asked to log in to pay.
+  // Once logged in, check whether this tenant already has a previous
+  // booking for this exact room — if so, this is a renewal, no deposit.
+  useEffect(() => {
+    if (userLoading || !selectedRoom) return
+    if (!user) {
+      setDepositRequired(true)
+      setDepositChecked(true)
+      calculatePrice(selectedRoom, durationMonths, true)
+      return
+    }
+    checkDeposit(selectedRoom.id, user.id)
+  }, [userLoading, user, selectedRoom])
+
+  // Restore an in-progress booking someone started before logging in to pay.
   useEffect(() => {
     if (userLoading || !user || !selectedRoom) return
 
@@ -46,7 +59,6 @@ function BookingContent() {
       if (pending.roomId === selectedRoom.id) {
         setStartDate(pending.startDate || '')
         setDurationMonths(pending.durationMonths || 1)
-        calculatePrice(selectedRoom, pending.durationMonths || 1)
         setRestoredNotice(true)
       }
       sessionStorage.removeItem(PENDING_BOOKING_KEY)
@@ -58,29 +70,36 @@ function BookingContent() {
   const fetchRoom = async (id: number) => {
     const { data } = await supabase.from('rooms').select('*').eq('id', id).single()
     setSelectedRoom(data)
-    if (data) calculatePrice(data, durationMonths)
+    if (data) calculatePrice(data, durationMonths, true)
     setRoomLoading(false)
   }
 
-  const calculatePrice = (room: any, months: number) => {
+  const checkDeposit = async (roomId: number, userId: string) => {
+    const { count } = await supabase
+      .from('bookings')
+      .select('id', { count: 'exact', head: true })
+      .eq('room_id', roomId)
+      .eq('user_id', userId)
+      .eq('payment_status', 'paid')
+
+    const isFirstTime = !count || count === 0
+    setDepositRequired(isFirstTime)
+    setDepositChecked(true)
+    calculatePrice(selectedRoom, durationMonths, isFirstTime)
+  }
+
+  // Flat pricing — no discount regardless of duration.
+  const calculatePrice = (room: any, months: number, needsDeposit: boolean) => {
     if (!room) return
-    let calculatedPrice = room.price_per_month * months
-    let discountAmount = 0
-
-    if (months >= 12) {
-      discountAmount = Math.floor(calculatedPrice * 0.15)
-      calculatedPrice -= discountAmount
-    }
-
+    const calculatedPrice = room.price_per_month * months
     setPrice(calculatedPrice)
-    setDiscount(discountAmount)
-    setTotal(calculatedPrice + deposit)
+    setTotal(calculatedPrice + (needsDeposit ? DEPOSIT_AMOUNT : 0))
   }
 
   const handleDurationChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const months = parseInt(e.target.value)
     setDurationMonths(months)
-    calculatePrice(selectedRoom, months)
+    calculatePrice(selectedRoom, months, depositRequired)
   }
 
   const handleConfirm = async () => {
@@ -100,26 +119,43 @@ function BookingContent() {
 
     setSubmitting(true)
 
+    // Re-check the room is still vacant right before booking — it may have
+    // been taken by someone else since this page first loaded.
+    const { data: freshRoom } = await supabase.from('rooms').select('status').eq('id', selectedRoom.id).single()
+    if (freshRoom && freshRoom.status !== 'vacant') {
+      alert('Maaf, kamar ini baru saja terisi oleh orang lain. Silakan pilih kamar lain.')
+      setSubmitting(false)
+      router.push('/rooms')
+      return
+    }
+
     const endDate = new Date(startDate)
     endDate.setMonth(endDate.getMonth() + durationMonths)
 
-    const { error } = await supabase.from('bookings').insert([
-      {
-        room_id: selectedRoom.id,
-        user_id: user.id,
-        start_date: startDate,
-        end_date: endDate.toISOString().split('T')[0],
-        duration_months: durationMonths,
-        total_amount: total,
-        payment_status: 'pending',
-      },
-    ])
+    const { data, error } = await supabase
+      .from('bookings')
+      .insert([
+        {
+          room_id: selectedRoom.id,
+          user_id: user.id,
+          start_date: startDate,
+          end_date: endDate.toISOString().split('T')[0],
+          duration_months: durationMonths,
+          total_amount: total,
+          payment_status: 'pending',
+          deposit_required: depositRequired,
+          deposit_amount: depositRequired ? DEPOSIT_AMOUNT : 0,
+          deposit_status: depositRequired ? 'pending' : 'not_applicable',
+        },
+      ])
+      .select('id')
+      .single()
 
     if (error) {
       alert('Error: ' + error.message)
       setSubmitting(false)
     } else {
-      router.push('/dashboard')
+      router.push(`/payment/${data.id}`)
     }
   }
 
@@ -134,6 +170,23 @@ function BookingContent() {
         <Link href="/rooms" className="bg-[#4CAF50] text-white px-6 py-3 rounded-lg font-semibold">
           Lihat Kamar Lain
         </Link>
+      </div>
+    )
+  }
+
+  if (selectedRoom.status !== 'vacant') {
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-16 text-center">
+        <div className="bg-white rounded-xl shadow p-8">
+          <div className="text-5xl mb-4">🔒</div>
+          <h1 className="font-display text-2xl font-medium mb-2 text-[#0f2e1f]">
+            Room {selectedRoom.number} Sudah Tidak Tersedia
+          </h1>
+          <p className="text-gray-600 mb-6 capitalize">Status kamar saat ini: {selectedRoom.status.replace('_', ' ')}</p>
+          <Link href="/rooms" className="inline-block bg-[#4CAF50] text-white px-6 py-3 rounded-lg font-semibold">
+            Lihat Kamar Lain
+          </Link>
+        </div>
       </div>
     )
   }
@@ -182,9 +235,10 @@ function BookingContent() {
             className="w-full px-4 py-3 border rounded-lg"
           >
             {[1, 3, 6, 12, 24].map(m => (
-              <option key={m} value={m}>{m} bulan {m >= 12 ? '(15% DISKON!)' : ''}</option>
+              <option key={m} value={m}>{m} bulan</option>
             ))}
           </select>
+          <p className="text-xs text-gray-500 mt-1">Harga flat per bulan, tidak ada diskon durasi.</p>
         </div>
 
         <div className="border-t pt-4 mt-4">
@@ -192,15 +246,14 @@ function BookingContent() {
             <span>Subtotal ({durationMonths} bulan)</span>
             <span>Rp {price.toLocaleString('id-ID')}</span>
           </div>
-          {discount > 0 && (
-            <div className="flex justify-between text-green-600 mb-2">
-              <span>Diskon (15%)</span>
-              <span>- Rp {discount.toLocaleString('id-ID')}</span>
-            </div>
-          )}
           <div className="flex justify-between mb-2">
-            <span>Deposit</span>
-            <span>Rp {deposit.toLocaleString('id-ID')}</span>
+            <span>
+              Deposit
+              {!depositRequired && depositChecked && (
+                <span className="text-green-600 text-xs ml-2">(tidak dikenakan — perpanjangan)</span>
+              )}
+            </span>
+            <span>Rp {(depositRequired ? DEPOSIT_AMOUNT : 0).toLocaleString('id-ID')}</span>
           </div>
           <div className="flex justify-between font-bold text-xl pt-4 border-t">
             <span>Total</span>

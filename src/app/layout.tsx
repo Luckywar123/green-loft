@@ -2,6 +2,8 @@ import './globals.css'
 import { Inter, Fraunces } from 'next/font/google'
 import Navbar from '@/components/Navbar'
 import Footer from '@/components/Footer'
+import ChatBot from '@/components/ChatBot'
+import MusicPlayer from '@/components/MusicPlayer'
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
 const fraunces = Fraunces({
@@ -23,6 +25,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Navbar />
         <main className="min-h-screen">{children}</main>
         <Footer />
+        <ChatBot />
+        <MusicPlayer />
       </body>
     </html>
   )

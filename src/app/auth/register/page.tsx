@@ -15,6 +15,7 @@ export default function Register() {
   })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [showSuccessModal, setShowSuccessModal] = useState(false)
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value })
@@ -50,7 +51,6 @@ export default function Register() {
 
       if (error) throw error
 
-      // Insert user profile
       if (user) {
         await supabase.from('users').insert([
           {
@@ -59,12 +59,12 @@ export default function Register() {
             name: formData.name,
             phone: formData.phone,
             role: 'tenant',
-            is_verified: true, // Auto-confirm for demo
+            is_verified: false,
           }
         ])
       }
 
-      router.push('/auth/login?registered=true')
+      setShowSuccessModal(true)
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -75,7 +75,7 @@ export default function Register() {
   return (
     <div className="min-h-[calc(100vh-200px)] flex items-center justify-center px-4">
       <div className="bg-white p-8 rounded-xl shadow-lg max-w-md w-full">
-        <h1 className="text-3xl font-bold mb-6 text-center">Daftar Akun</h1>
+        <h1 className="font-display text-3xl font-medium mb-6 text-center text-[#0f2e1f]">Daftar Akun</h1>
         
         {error && (
           <div className="bg-red-100 text-red-700 p-4 rounded-lg mb-6">{error}</div>
@@ -162,6 +162,24 @@ export default function Register() {
           Sudah punya akun? <Link href="/auth/login" className="text-[#4CAF50] hover:underline">Login</Link>
         </p>
       </div>
+
+      {showSuccessModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-8 text-center">
+            <div className="text-5xl mb-4">📧</div>
+            <h2 className="font-display text-2xl font-medium mb-2 text-[#0f2e1f]">Registrasi Berhasil!</h2>
+            <p className="text-gray-600 mb-6">
+              Silakan cek email kamu (<strong>{formData.email}</strong>) untuk verifikasi akun sebelum login.
+            </p>
+            <button
+              onClick={() => router.push('/auth/login?registered=true')}
+              className="w-full bg-[#4CAF50] text-white py-3 rounded-lg font-semibold hover:bg-[#45a049]"
+            >
+              Ke Halaman Login
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -4,7 +4,6 @@
 -- Run this once. It's written to be safe even if some parts don't apply
 -- to your data (uses IF EXISTS / conditional loops throughout).
 
-BEGIN;
 
 -- ============================================
 -- 1. FIX: public.users.id not matching auth.users.id
@@ -92,7 +91,6 @@ ALTER TABLE bookings ADD COLUMN IF NOT EXISTS reminder_7_sent BOOLEAN NOT NULL D
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS reminder_3_sent BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS reminder_1_sent BOOLEAN NOT NULL DEFAULT FALSE;
 
-COMMIT;
 
 -- ============================================
 -- Sanity check — run this after and eyeball the results:

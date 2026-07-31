@@ -2,7 +2,6 @@
 -- GREEN LOFT - PAYMENTS, DEPOSIT, CHAT, FLAT PRICING
 -- ============================================
 
-BEGIN;
 
 -- 1. Deposit tracking: deposit is only charged on a tenant's first booking
 --    for a given room. Track whether it was required and its current state.
@@ -83,4 +82,3 @@ EXCEPTION WHEN duplicate_object THEN
   NULL;
 END $$;
 
-COMMIT;

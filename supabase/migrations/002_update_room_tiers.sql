@@ -13,7 +13,6 @@
 -- existing room ids, back them up before running this, since old
 -- room_type values ('standard' and 'suite') are removed entirely.
 
-BEGIN;
 
 -- 1. Drop the column that depends on the old enum, then the enum itself
 ALTER TABLE rooms DROP COLUMN IF EXISTS type;
@@ -96,6 +95,5 @@ CREATE POLICY "Admin can manage crypto tx" ON crypto_transactions
     EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role IN ('admin', 'crypto_admin'))
   );
 
-COMMIT;
 
 

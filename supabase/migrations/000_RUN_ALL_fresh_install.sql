@@ -1,10 +1,12 @@
 -- ============================================
 -- GREEN LOFT - RUN ALL MIGRATIONS (fresh install helper)
 -- ============================================
--- This is just files 001 through 005 concatenated in order, for when
--- you're setting up on a database that doesn't have any of this yet.
--- If your tables already exist, this will fail loudly with "already
--- exists" errors — harmless, just means you're in the wrong place.
+-- Files 001 through 005 concatenated in order, for a database that
+-- doesn't have any of this yet. None of these are wrapped in a single
+-- all-or-nothing transaction anymore — every statement commits on its
+-- own, so if something fails partway through, everything before it is
+-- already saved. Fix the failing statement and continue from there
+-- instead of starting over.
 
 
 -- ============================================
@@ -275,7 +277,6 @@ INSERT INTO rooms (number, type, price_per_month, price_per_year, floor, status,
 -- existing room ids, back them up before running this, since old
 -- room_type values ('standard' and 'suite') are removed entirely.
 
-BEGIN;
 
 -- 1. Drop the column that depends on the old enum, then the enum itself
 ALTER TABLE rooms DROP COLUMN IF EXISTS type;
@@ -358,7 +359,6 @@ CREATE POLICY "Admin can manage crypto tx" ON crypto_transactions
     EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role IN ('admin', 'crypto_admin'))
   );
 
-COMMIT;
 
 
 
@@ -370,7 +370,6 @@ COMMIT;
 -- GREEN LOFT - PAYMENTS, DEPOSIT, CHAT, FLAT PRICING
 -- ============================================
 
-BEGIN;
 
 -- 1. Deposit tracking: deposit is only charged on a tenant's first booking
 --    for a given room. Track whether it was required and its current state.
@@ -451,7 +450,6 @@ EXCEPTION WHEN duplicate_object THEN
   NULL;
 END $$;
 
-COMMIT;
 
 
 -- ============================================
@@ -463,7 +461,6 @@ COMMIT;
 -- Run this once. It's written to be safe even if some parts don't apply
 -- to your data (uses IF EXISTS / conditional loops throughout).
 
-BEGIN;
 
 -- ============================================
 -- 1. FIX: public.users.id not matching auth.users.id
@@ -551,7 +548,6 @@ ALTER TABLE bookings ADD COLUMN IF NOT EXISTS reminder_7_sent BOOLEAN NOT NULL D
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS reminder_3_sent BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS reminder_1_sent BOOLEAN NOT NULL DEFAULT FALSE;
 
-COMMIT;
 
 -- ============================================
 -- Sanity check — run this after and eyeball the results:
@@ -567,20 +563,39 @@ COMMIT;
 -- ============================================
 -- GREEN LOFT - ROOM INTEGRITY + PROFILE (AVATAR/KTP)
 -- ============================================
-
-BEGIN;
+-- NOTE: deliberately NOT wrapped in BEGIN/COMMIT this time. Run it
+-- top to bottom in the SQL Editor. If one statement errors, everything
+-- above it has already been saved — just fix the issue and re-run from
+-- the failing statement onward instead of starting over from scratch.
 
 -- ============================================
--- 1. Track exactly which booking currently occupies a room
+-- STEP 1: Clean up any room with more than one 'paid' booking
 -- ============================================
--- Previously "who's the current tenant" was guessed by finding the most
--- recent 'paid' booking for a room — which breaks the moment a room has
--- more than one paid booking in its history (e.g. a previous tenant, or
--- the double-booking bug below). This makes it explicit instead of guessed.
+-- Run this by itself first. It keeps the most recent 'paid' booking per
+-- room and demotes any older duplicate(s) to 'refunded'. Safe to run
+-- more than once — once there's no duplicate left, it does nothing.
+WITH ranked AS (
+  SELECT id, room_id,
+         ROW_NUMBER() OVER (PARTITION BY room_id ORDER BY created_at DESC) AS rn
+  FROM bookings
+  WHERE payment_status = 'paid'
+)
+UPDATE bookings
+SET payment_status = 'refunded'
+WHERE id IN (SELECT id FROM ranked WHERE rn > 1);
+
+-- Verify it worked — this MUST return zero rows before continuing:
+SELECT room_id, COUNT(*)
+FROM bookings
+WHERE payment_status = 'paid'
+GROUP BY room_id
+HAVING COUNT(*) > 1;
+
+-- ============================================
+-- STEP 2: Track exactly which booking currently occupies a room
+-- ============================================
 ALTER TABLE rooms ADD COLUMN IF NOT EXISTS current_booking_id UUID REFERENCES bookings(id) ON DELETE SET NULL;
 
--- Best-effort backfill: for rooms already marked occupied, point
--- current_booking_id at their most recent paid booking.
 UPDATE rooms r
 SET current_booking_id = sub.booking_id
 FROM (
@@ -592,34 +607,27 @@ FROM (
 WHERE r.id = sub.room_id AND r.status = 'occupied' AND r.current_booking_id IS NULL;
 
 -- ============================================
--- 2. Prevent the same room from ever having two simultaneously-paid
---    bookings at the database level (not just app-side checks)
+-- STEP 3: Prevent this from ever happening again (DB-level safety net)
 -- ============================================
--- First, clean up any existing case of this (which is exactly the bug
--- this index prevents going forward): if a room somehow already has more
--- than one 'paid' booking, keep only the most recent as 'paid' and demote
--- the older one(s) to 'refunded', since they're stale/incorrect duplicates.
-WITH ranked AS (
-  SELECT id, room_id,
-         ROW_NUMBER() OVER (PARTITION BY room_id ORDER BY created_at DESC) AS rn
-  FROM bookings
-  WHERE payment_status = 'paid'
-)
-UPDATE bookings
-SET payment_status = 'refunded'
-WHERE id IN (SELECT id FROM ranked WHERE rn > 1);
-
+-- If STEP 1's verification query above returned any rows, fix those
+-- first — this will fail with the exact same "duplicate key" error
+-- otherwise, and that's the correct, expected behavior (it's telling you
+-- step 1 isn't done yet).
 DROP INDEX IF EXISTS one_paid_booking_per_room;
 CREATE UNIQUE INDEX one_paid_booking_per_room ON bookings(room_id) WHERE payment_status = 'paid';
 
 -- ============================================
--- 3. Profile: avatar + KTP (ID card) upload
+-- STEP 4: Profile fields (avatar + KTP)
 -- ============================================
 ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS ktp_url TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS ktp_verified BOOLEAN NOT NULL DEFAULT FALSE;
 
--- Avatars: public bucket, fine for profile pictures.
+-- ============================================
+-- STEP 5: Storage buckets — this is what was missing, causing
+-- "no bucket found" on upload (it never got created because the earlier
+-- version of this file rolled back everything when STEP 3 failed)
+-- ============================================
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('avatars', 'avatars', true)
 ON CONFLICT (id) DO NOTHING;
@@ -633,8 +641,6 @@ DROP POLICY IF EXISTS "Anyone can view avatars" ON storage.objects;
 CREATE POLICY "Anyone can view avatars" ON storage.objects
   FOR SELECT USING (bucket_id = 'avatars');
 
--- KTP: PRIVATE bucket — this is a government ID, not public like avatars
--- or payment proofs. Only the owner and admins can read it.
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('ktp-documents', 'ktp-documents', false)
 ON CONFLICT (id) DO NOTHING;
@@ -653,8 +659,27 @@ CREATE POLICY "Users can view own ktp, admin can view all" ON storage.objects
     )
   );
 
-COMMIT;
+-- ============================================
+-- Also fix the payment-proofs bucket, in case migration 003 hit the same
+-- kind of transaction-rollback problem — this is safe to re-run
+-- regardless (ON CONFLICT DO NOTHING / DROP POLICY IF EXISTS throughout).
+-- ============================================
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('payment-proofs', 'payment-proofs', true)
+ON CONFLICT (id) DO NOTHING;
 
--- Sanity checks to run after:
--- SELECT id, number, status, current_booking_id FROM rooms ORDER BY number;
+DROP POLICY IF EXISTS "Authenticated users can upload payment proofs" ON storage.objects;
+CREATE POLICY "Authenticated users can upload payment proofs" ON storage.objects
+  FOR INSERT TO authenticated
+  WITH CHECK (bucket_id = 'payment-proofs');
+
+DROP POLICY IF EXISTS "Anyone can view payment proofs" ON storage.objects;
+CREATE POLICY "Anyone can view payment proofs" ON storage.objects
+  FOR SELECT USING (bucket_id = 'payment-proofs');
+
+-- ============================================
+-- Final check — run this and confirm you see avatars, ktp-documents,
+-- and payment-proofs all listed:
+-- ============================================
+SELECT id, public FROM storage.buckets;
 

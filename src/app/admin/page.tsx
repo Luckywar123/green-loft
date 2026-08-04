@@ -57,9 +57,12 @@ export default function AdminDashboard() {
       .eq('sender_role', 'tenant')
       .is('read_at', null)
 
-    const { count: totalBookings } = await supabase
+    const now = new Date()
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
+    const { count: bookingsThisMonth } = await supabase
       .from('bookings')
       .select('id', { count: 'exact', head: true })
+      .gte('created_at', monthStart)
 
     setStats({
       totalRooms,
@@ -68,7 +71,7 @@ export default function AdminDashboard() {
       pendingPayments: pendingPayments || 0,
       pendingCrypto: pendingCrypto || 0,
       unreadMessages: unreadMessages || 0,
-      totalBookings: totalBookings || 0,
+      totalBookings: bookingsThisMonth || 0,
     })
   }
 
@@ -85,7 +88,9 @@ export default function AdminDashboard() {
         <StatCard label="Total Kamar" value={stats.totalRooms} />
         <StatCard label="Kamar Vacant" value={stats.vacantRooms} accent="text-green-600" />
         <StatCard label="Kamar Occupied" value={stats.occupiedRooms} accent="text-blue-600" />
-        <StatCard label="Total Booking" value={stats.totalBookings} />
+        <Link href="/admin/analytics">
+          <StatCard label="Booking Bulan Ini" value={stats.totalBookings} />
+        </Link>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -121,6 +126,24 @@ export default function AdminDashboard() {
           <div className="text-3xl mb-3">💬</div>
           <h3 className="font-semibold text-lg mb-1">Pesan Tenant</h3>
           <p className="text-sm text-gray-500">Chat masuk dari tenant yang perlu dibalas.</p>
+        </Link>
+
+        <Link href="/admin/analytics" className="card-luxury p-6 hover:-translate-y-1 transition-transform">
+          <div className="text-3xl mb-3">📈</div>
+          <h3 className="font-semibold text-lg mb-1">Analitik Bulanan</h3>
+          <p className="text-sm text-gray-500">Tren booking & revenue per bulan, export ke Google Sheets.</p>
+        </Link>
+
+        <Link href="/admin/announcements" className="card-luxury p-6 hover:-translate-y-1 transition-transform">
+          <div className="text-3xl mb-3">📰</div>
+          <h3 className="font-semibold text-lg mb-1">Kelola Berita</h3>
+          <p className="text-sm text-gray-500">Publikasikan update, kirim notif ke semua tenant.</p>
+        </Link>
+
+        <Link href="/admin/testimonials" className="card-luxury p-6 hover:-translate-y-1 transition-transform">
+          <div className="text-3xl mb-3">⭐</div>
+          <h3 className="font-semibold text-lg mb-1">Kelola Testimoni</h3>
+          <p className="text-sm text-gray-500">Review & approve testimoni sebelum tampil di beranda.</p>
         </Link>
 
         <Link href="/rooms" className="card-luxury p-6 hover:-translate-y-1 transition-transform">

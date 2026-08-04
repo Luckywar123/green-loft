@@ -5,6 +5,8 @@ import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
+type Notif = { id: string; title: string; message: string; action_url: string | null; read: boolean; created_at: string }
+
 export default function Navbar() {
   const router = useRouter()
   const [user, setUser] = useState<any>(null)
@@ -13,7 +15,11 @@ export default function Navbar() {
   const [loading, setLoading] = useState(true)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
+  const [bookingHref, setBookingHref] = useState('/rooms')
+  const [notifs, setNotifs] = useState<Notif[]>([])
+  const [notifOpen, setNotifOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+  const notifRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     checkUser()
@@ -22,6 +28,7 @@ export default function Navbar() {
   useEffect(() => {
     const onClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setAccountMenuOpen(false)
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) setNotifOpen(false)
     }
     document.addEventListener('mousedown', onClickOutside)
     return () => document.removeEventListener('mousedown', onClickOutside)
@@ -33,21 +40,74 @@ export default function Navbar() {
     setIsAdmin(data?.role === 'admin' || data?.role === 'crypto_admin')
   }
 
+  // "Booking" in the nav is smarter than a static link: send the tenant
+  // wherever's actually useful given their current state, instead of just
+  // duplicating "Kamar" every time.
+  const loadBookingHref = async (uid: string) => {
+    const { data } = await supabase
+      .from('bookings')
+      .select('id, payment_status')
+      .eq('user_id', uid)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (data?.payment_status === 'pending') setBookingHref(`/payment/${data.id}`)
+    else if (data?.payment_status === 'paid') setBookingHref('/dashboard')
+    else setBookingHref('/rooms')
+  }
+
+  const loadNotifs = async (uid: string) => {
+    const { data } = await supabase
+      .from('notifications')
+      .select('id, title, message, action_url, read, created_at')
+      .eq('user_id', uid)
+      .order('created_at', { ascending: false })
+      .limit(10)
+    setNotifs(data || [])
+  }
+
   const checkUser = async () => {
     const { data: { user } } = await supabase.auth.getUser()
     setUser(user)
-    if (user) await loadProfile(user.id)
+    if (user) {
+      await loadProfile(user.id)
+      await loadBookingHref(user.id)
+      await loadNotifs(user.id)
+
+      const channel = supabase
+        .channel(`notifications-${user.id}`)
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` },
+          (payload) => setNotifs((prev) => [payload.new as Notif, ...prev])
+        )
+        .subscribe()
+    }
     setLoading(false)
 
     supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
       if (session?.user) {
         loadProfile(session.user.id)
+        loadBookingHref(session.user.id)
+        loadNotifs(session.user.id)
       } else {
         setProfile(null)
         setIsAdmin(false)
+        setBookingHref('/rooms')
+        setNotifs([])
       }
     })
+  }
+
+  const markNotifRead = async (notif: Notif) => {
+    if (!notif.read) {
+      setNotifs((prev) => prev.map((n) => (n.id === notif.id ? { ...n, read: true } : n)))
+      await supabase.from('notifications').update({ read: true, read_at: new Date().toISOString() }).eq('id', notif.id)
+    }
+    setNotifOpen(false)
+    if (notif.action_url) router.push(notif.action_url)
   }
 
   const handleLogout = async () => {
@@ -62,6 +122,38 @@ export default function Navbar() {
   if (loading) return null
 
   const initial = (profile?.name || user?.email || '?')[0]?.toUpperCase()
+  const unreadCount = notifs.filter((n) => !n.read).length
+
+  const NotifBell = () => (
+    <div className="relative" ref={notifRef}>
+      <button onClick={() => setNotifOpen((o) => !o)} className="relative p-2 rounded-full hover:bg-gray-50" aria-label="Notifikasi">
+        <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+        </svg>
+        {unreadCount > 0 && (
+          <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+            {unreadCount > 9 ? '9+' : unreadCount}
+          </span>
+        )}
+      </button>
+      {notifOpen && (
+        <div className="absolute right-0 mt-2 w-80 max-w-[90vw] bg-white rounded-xl shadow-xl border overflow-hidden max-h-96 overflow-y-auto">
+          <div className="px-4 py-3 border-b font-semibold text-sm">Notifikasi</div>
+          {notifs.length === 0 && <p className="px-4 py-6 text-sm text-gray-500 text-center">Belum ada notifikasi.</p>}
+          {notifs.map((n) => (
+            <button
+              key={n.id}
+              onClick={() => markNotifRead(n)}
+              className={`block w-full text-left px-4 py-3 border-b hover:bg-gray-50 ${!n.read ? 'bg-green-50/50' : ''}`}
+            >
+              <div className="font-semibold text-sm">{n.title}</div>
+              <div className="text-xs text-gray-500 mt-0.5">{n.message}</div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 
   return (
     <nav className="bg-white shadow-md sticky top-0 z-50">
@@ -79,7 +171,9 @@ export default function Navbar() {
           <div className="hidden md:flex items-center space-x-8">
             <Link href="/" className="text-gray-700 hover:text-[#4CAF50]">Beranda</Link>
             <Link href="/rooms" className="text-gray-700 hover:text-[#4CAF50]">Kamar</Link>
-            <Link href="/booking" className="text-gray-700 hover:text-[#4CAF50]">Booking</Link>
+            <Link href={bookingHref} className="text-gray-700 hover:text-[#4CAF50]">Booking</Link>
+            <Link href="/news" className="text-gray-700 hover:text-[#4CAF50]">Berita</Link>
+            {user && <NotifBell />}
             {user ? (
               <div className="relative" ref={menuRef}>
                 <button
@@ -142,12 +236,14 @@ export default function Navbar() {
           <div className="md:hidden pb-4 space-y-3">
             <Link href="/" className="block text-gray-700 hover:text-[#4CAF50]" onClick={() => setMobileMenuOpen(false)}>Beranda</Link>
             <Link href="/rooms" className="block text-gray-700 hover:text-[#4CAF50]" onClick={() => setMobileMenuOpen(false)}>Kamar</Link>
-            <Link href="/booking" className="block text-gray-700 hover:text-[#4CAF50]" onClick={() => setMobileMenuOpen(false)}>Booking</Link>
+            <Link href={bookingHref} className="block text-gray-700 hover:text-[#4CAF50]" onClick={() => setMobileMenuOpen(false)}>Booking</Link>
+            <Link href="/news" className="block text-gray-700 hover:text-[#4CAF50]" onClick={() => setMobileMenuOpen(false)}>Berita</Link>
             {user ? (
               <>
                 <div className="text-xs text-gray-400 flex items-center gap-1.5 pt-2 border-t">
                   {user.email}
                   {isAdmin && <span className="bg-[#b8935f]/15 text-[#b8935f] px-1.5 py-0.5 rounded font-semibold">ADMIN</span>}
+                  {unreadCount > 0 && <span className="bg-red-500 text-white px-1.5 py-0.5 rounded-full font-semibold">{unreadCount} notif baru</span>}
                 </div>
                 {isAdmin && (
                   <Link href="/admin" className="block text-[#b8935f] font-semibold" onClick={() => setMobileMenuOpen(false)}>Admin Panel</Link>

@@ -1,5 +1,8 @@
 import Link from 'next/link'
 import Image from 'next/image'
+import AvailabilityBanner from '@/components/AvailabilityBanner'
+import NewsPreview from '@/components/NewsPreview'
+import TestimonialsSection from '@/components/TestimonialsSection'
 
 const facilities = [
   { icon: '🏊', name: 'Kolam Renang', desc: 'Khusus penghuni' },
@@ -100,7 +103,7 @@ export default function Home() {
             dua pilihan kamar untuk gaya hidup yang kamu inginkan.
           </p>
 
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+          <div className="flex flex-col sm:flex-row gap-4 justify-center mb-6">
             <Link href="/booking" className="btn-gold text-lg px-8 py-4 rounded-full font-semibold">
               Booking Sekarang
             </Link>
@@ -108,6 +111,8 @@ export default function Home() {
               Lihat Kamar
             </Link>
           </div>
+
+          <AvailabilityBanner />
         </div>
 
         {/* Trust bar */}
@@ -173,6 +178,8 @@ export default function Home() {
       <div className="bg-white">
         <LeafDivider />
       </div>
+
+      <NewsPreview />
 
       {/* ROOM TIERS */}
       <section className="py-16 md:py-20 bg-white">
@@ -258,6 +265,34 @@ export default function Home() {
                 <p className="text-gray-600 text-sm">{f.desc}</p>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      <TestimonialsSection />
+
+      {/* LOCATION */}
+      <section className="py-16 md:py-20 bg-[#FAFAF5]">
+        <div className="max-w-5xl mx-auto px-4">
+          <div className="text-center mb-10">
+            <span className="uppercase tracking-[0.25em] text-xs text-[#b8935f] font-semibold">Lokasi</span>
+            <h2 className="font-display text-3xl md:text-4xl font-medium mt-2 text-[#0f2e1f]">
+              Temukan <span className="text-[#4CAF50]">Green Loft</span>
+            </h2>
+            <p className="text-gray-600 mt-3">
+              Alamat lengkap & petunjuk arah tersedia lewat chat admin di pojok kanan bawah.
+            </p>
+          </div>
+          <div className="rounded-2xl overflow-hidden shadow-lg border border-[#b8935f]/20" style={{ height: 400 }}>
+            <iframe
+              title="Lokasi Green Loft"
+              src="https://www.google.com/maps?q=D%27+Green+Loft+Kost&output=embed"
+              width="100%"
+              height="100%"
+              style={{ border: 0 }}
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+            />
           </div>
         </div>
       </section>

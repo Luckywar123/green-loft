@@ -9,6 +9,7 @@ export default function AdminPayments() {
   const [payments, setPayments] = useState<any[]>([])
   const [cryptoTxs, setCryptoTxs] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [busyId, setBusyId] = useState<string | null>(null)
 
   useEffect(() => {
     checkAdmin()
@@ -31,14 +32,14 @@ export default function AdminPayments() {
   const fetchPending = async () => {
     const { data: paymentData } = await supabase
       .from('payments')
-      .select('*, bookings(id, room_id, total_amount, start_date, end_date, deposit_required, deposit_status, rooms(number, type), users(name, email))')
+      .select('*, bookings(id, room_id, total_amount, start_date, end_date, deposit_required, deposit_status, rooms!room_id(number, type), users(name, email))')
       .eq('status', 'pending')
       .order('created_at', { ascending: false })
     setPayments(paymentData || [])
 
     const { data: cryptoData } = await supabase
       .from('crypto_transactions')
-      .select('*, bookings(id, room_id, total_amount, start_date, end_date, deposit_required, deposit_status, rooms(number, type), users(name, email))')
+      .select('*, bookings(id, room_id, total_amount, start_date, end_date, deposit_required, deposit_status, rooms!room_id(number, type), users(name, email))')
       .eq('status', 'pending')
       .order('created_at', { ascending: false })
     setCryptoTxs(cryptoData || [])
@@ -46,14 +47,23 @@ export default function AdminPayments() {
     setLoading(false)
   }
 
+  const notifyTenant = (endpoint: string, body: Record<string, any>) => {
+    fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).catch(() => {})
+  }
+
   const verifyPayment = async (payment: any) => {
     if (!adminId) return
+    setBusyId(payment.id)
     const { error: payErr } = await supabase
       .from('payments')
       .update({ status: 'verified_manual', verified_by: adminId, verified_at: new Date().toISOString(), paid_at: new Date().toISOString() })
       .eq('id', payment.id)
 
-    if (payErr) { alert('Gagal verifikasi: ' + payErr.message); return }
+    if (payErr) { alert('Gagal verifikasi: ' + payErr.message); setBusyId(null); return }
 
     if (payment.booking_id) {
       const bookingUpdates: Record<string, any> = { payment_status: 'paid' }
@@ -66,30 +76,57 @@ export default function AdminPayments() {
       }
     }
 
-    alert('Payment terverifikasi! Kamar ditandai occupied.')
     if (payment.bookings?.users?.email) {
-      fetch('/api/notify/payment-confirmed', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tenantEmail: payment.bookings.users.email,
-          tenantName: payment.bookings.users.name,
-          roomNumber: payment.bookings.rooms?.number,
-          amount: payment.amount,
-        }),
-      }).catch(() => {})
+      notifyTenant('/api/notify/payment-confirmed', {
+        tenantEmail: payment.bookings.users.email,
+        tenantName: payment.bookings.users.name,
+        roomNumber: payment.bookings.rooms?.number,
+        amount: payment.amount,
+      })
     }
+    setBusyId(null)
+    fetchPending()
+  }
+
+  const rejectPayment = async (payment: any) => {
+    const reason = prompt('Kenapa ditolak? (contoh: bukti transfer tidak valid / nominal tidak sesuai)')
+    if (reason === null) return // cancelled
+    setBusyId(payment.id)
+
+    const { error } = await supabase
+      .from('payments')
+      .update({ status: 'failed', rejection_reason: reason || 'Tidak ada alasan diisi' })
+      .eq('id', payment.id)
+
+    if (error) { alert('Gagal menolak: ' + error.message); setBusyId(null); return }
+
+    // Booking goes back to pending so the tenant can submit a real payment.
+    if (payment.booking_id) {
+      await supabase.from('bookings').update({ payment_status: 'pending' }).eq('id', payment.booking_id)
+    }
+
+    if (payment.bookings?.users?.email) {
+      notifyTenant('/api/notify/payment-rejected', {
+        tenantEmail: payment.bookings.users.email,
+        tenantName: payment.bookings.users.name,
+        roomNumber: payment.bookings.rooms?.number,
+        bookingId: payment.booking_id,
+        reason: reason || 'Tidak ada alasan diisi',
+      })
+    }
+    setBusyId(null)
     fetchPending()
   }
 
   const verifyCrypto = async (tx: any) => {
     if (!adminId) return
+    setBusyId(tx.id)
     const { error: txErr } = await supabase
       .from('crypto_transactions')
       .update({ status: 'verified', verified_by: adminId, verified_at: new Date().toISOString() })
       .eq('id', tx.id)
 
-    if (txErr) { alert('Gagal verifikasi: ' + txErr.message); return }
+    if (txErr) { alert('Gagal verifikasi: ' + txErr.message); setBusyId(null); return }
 
     if (tx.booking_id) {
       const bookingUpdates: Record<string, any> = { payment_status: 'paid' }
@@ -102,19 +139,44 @@ export default function AdminPayments() {
       }
     }
 
-    alert('Transaksi crypto terverifikasi! Kamar ditandai occupied.')
     if (tx.bookings?.users?.email) {
-      fetch('/api/notify/payment-confirmed', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tenantEmail: tx.bookings.users.email,
-          tenantName: tx.bookings.users.name,
-          roomNumber: tx.bookings.rooms?.number,
-          amount: tx.bookings.total_amount,
-        }),
-      }).catch(() => {})
+      notifyTenant('/api/notify/payment-confirmed', {
+        tenantEmail: tx.bookings.users.email,
+        tenantName: tx.bookings.users.name,
+        roomNumber: tx.bookings.rooms?.number,
+        amount: tx.bookings.total_amount,
+      })
     }
+    setBusyId(null)
+    fetchPending()
+  }
+
+  const rejectCrypto = async (tx: any) => {
+    const reason = prompt('Kenapa ditolak? (contoh: TX hash tidak valid / tidak ditemukan di blockchain)')
+    if (reason === null) return
+    setBusyId(tx.id)
+
+    const { error } = await supabase
+      .from('crypto_transactions')
+      .update({ status: 'failed', rejection_reason: reason || 'Tidak ada alasan diisi' })
+      .eq('id', tx.id)
+
+    if (error) { alert('Gagal menolak: ' + error.message); setBusyId(null); return }
+
+    if (tx.booking_id) {
+      await supabase.from('bookings').update({ payment_status: 'pending' }).eq('id', tx.booking_id)
+    }
+
+    if (tx.bookings?.users?.email) {
+      notifyTenant('/api/notify/payment-rejected', {
+        tenantEmail: tx.bookings.users.email,
+        tenantName: tx.bookings.users.name,
+        roomNumber: tx.bookings.rooms?.number,
+        bookingId: tx.booking_id,
+        reason: reason || 'Tidak ada alasan diisi',
+      })
+    }
+    setBusyId(null)
     fetchPending()
   }
 
@@ -154,7 +216,18 @@ export default function AdminPayments() {
                     </a>
                   )}
                 </div>
-                <button onClick={() => verifyPayment(payment)} className="btn-primary">Verify & Approve</button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => rejectPayment(payment)}
+                    disabled={busyId === payment.id}
+                    className="border border-red-300 text-red-600 px-4 py-2 rounded-lg font-semibold text-sm hover:bg-red-50 disabled:opacity-50"
+                  >
+                    Tolak
+                  </button>
+                  <button onClick={() => verifyPayment(payment)} disabled={busyId === payment.id} className="btn-primary disabled:opacity-50">
+                    Verify & Approve
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -185,7 +258,18 @@ export default function AdminPayments() {
                     </a>
                   )}
                 </div>
-                <button onClick={() => verifyCrypto(tx)} className="btn-primary">Verify & Approve</button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => rejectCrypto(tx)}
+                    disabled={busyId === tx.id}
+                    className="border border-red-300 text-red-600 px-4 py-2 rounded-lg font-semibold text-sm hover:bg-red-50 disabled:opacity-50"
+                  >
+                    Tolak
+                  </button>
+                  <button onClick={() => verifyCrypto(tx)} disabled={busyId === tx.id} className="btn-primary disabled:opacity-50">
+                    Verify & Approve
+                  </button>
+                </div>
               </div>
             </div>
           ))}

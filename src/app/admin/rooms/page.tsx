@@ -40,7 +40,7 @@ export default function AdminRooms() {
     // staying here right now" — not a guess based on payment history.
     const { data: roomsData } = await supabase
       .from('rooms')
-      .select('*, current_booking:current_booking_id(id, start_date, end_date, users(name, email)))')
+      .select('*, current_booking:current_booking_id(id, start_date, end_date, users(name, email))')
       .order('number')
 
     setRooms(roomsData || [])

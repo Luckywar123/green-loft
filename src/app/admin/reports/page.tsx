@@ -37,6 +37,7 @@ export default function AdminReports() {
   const [editingStart, setEditingStart] = useState<Record<string, string>>({})
   const [editingEnd, setEditingEnd] = useState<Record<string, string>>({})
   const [search, setSearch] = useState('')
+  const [fetchError, setFetchError] = useState<string | null>(null)
 
   useEffect(() => {
     checkAdmin()
@@ -53,20 +54,32 @@ export default function AdminReports() {
 
   const fetchAll = async () => {
     setLoading(true)
-    const { data: bookings } = await supabase
+    setFetchError(null)
+
+    const { data: bookings, error: bookingsErr } = await supabase
       .from('bookings')
-      .select('*, rooms(number, type), users(name, email, ktp_url, ktp_verified)')
+      .select('*, rooms!room_id(number, type), users(name, email, ktp_url, ktp_verified)')
       .order('created_at', { ascending: false })
 
-    const { data: payments } = await supabase
+    if (bookingsErr) {
+      console.error('[admin/reports] bookings query failed:', bookingsErr)
+      setFetchError(bookingsErr.message)
+      setRows([])
+      setLoading(false)
+      return
+    }
+
+    const { data: payments, error: paymentsErr } = await supabase
       .from('payments')
       .select('booking_id, method, status, proof_url, created_at')
       .order('created_at', { ascending: false })
+    if (paymentsErr) console.error('[admin/reports] payments query failed:', paymentsErr)
 
-    const { data: cryptoTxs } = await supabase
+    const { data: cryptoTxs, error: cryptoErr } = await supabase
       .from('crypto_transactions')
       .select('booking_id, status, proof_url, created_at')
       .order('created_at', { ascending: false })
+    if (cryptoErr) console.error('[admin/reports] crypto_transactions query failed:', cryptoErr)
 
     const merged: Row[] = (bookings || []).map((b: any) => {
       const latestPayment = (payments || []).find((p) => p.booking_id === b.id)
@@ -199,6 +212,13 @@ export default function AdminReports() {
           <a href="/admin/messages" className="text-[#4CAF50] hover:underline">Pesan</a>
         </div>
       </div>
+
+      {fetchError && (
+        <div className="mb-4 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
+          <strong>Gagal memuat data:</strong> {fetchError}
+          <button onClick={fetchAll} className="ml-3 underline font-semibold">Coba lagi</button>
+        </div>
+      )}
 
       <div className="flex justify-between items-center mb-4 flex-wrap gap-3">
         <input

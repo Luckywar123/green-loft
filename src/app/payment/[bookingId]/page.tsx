@@ -48,6 +48,7 @@ export default function PaymentPage() {
   const bookingId = params.bookingId as string
 
   const [booking, setBooking] = useState<any>(null)
+  const [fetchError, setFetchError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<Tab>('qris')
 
@@ -80,11 +81,13 @@ export default function PaymentPage() {
   const fetchBooking = async () => {
     const { data, error } = await supabase
       .from('bookings')
-      .select('*, rooms(number, type, price_per_month)')
+      .select('*, rooms!room_id(number, type, price_per_month)')
       .eq('id', bookingId)
       .single()
 
-    if (error || !data) {
+    if (error) {
+      console.error('[payment] fetchBooking failed:', error)
+      setFetchError(error.message)
       setLoading(false)
       return
     }
@@ -219,7 +222,17 @@ export default function PaymentPage() {
   if (!booking) {
     return (
       <div className="max-w-2xl mx-auto px-4 py-16 text-center">
-        <p className="text-gray-600 mb-4">Booking tidak ditemukan.</p>
+        {fetchError ? (
+          <>
+            <p className="text-red-600 font-semibold mb-2">Gagal memuat booking.</p>
+            <p className="text-gray-500 text-sm mb-4 break-words">{fetchError}</p>
+            <button onClick={() => { setLoading(true); fetchBooking() }} className="text-sm underline text-[#4CAF50] mb-4 block mx-auto">
+              Coba lagi
+            </button>
+          </>
+        ) : (
+          <p className="text-gray-600 mb-4">Booking tidak ditemukan.</p>
+        )}
         <Link href="/dashboard" className="bg-[#4CAF50] text-white px-6 py-3 rounded-lg font-semibold">
           Ke Dashboard
         </Link>

@@ -34,10 +34,61 @@ function CountdownBadge({ endDate }: { endDate: string }) {
   return <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${style}`}>{text}</span>
 }
 
+function TestimonialForm({ userId, defaultName }: { userId: string; defaultName: string }) {
+  const [rating, setRating] = useState(5)
+  const [body, setBody] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
+
+  const submit = async () => {
+    if (!body.trim()) { alert('Tulis testimoni dulu ya'); return }
+    setSubmitting(true)
+    const { error } = await supabase.from('testimonials').insert([
+      { user_id: userId, name: defaultName, rating, body: body.trim(), is_published: false },
+    ])
+    setSubmitting(false)
+    if (error) { alert('Gagal mengirim: ' + error.message); return }
+    setSubmitted(true)
+  }
+
+  if (submitted) {
+    return (
+      <div className="bg-white rounded-xl shadow p-6 mb-8 text-center">
+        <p className="text-[#4CAF50] font-semibold">Makasih! Testimoni kamu akan tampil setelah direview admin. 🙏</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-white rounded-xl shadow p-6 mb-8">
+      <h2 className="font-semibold mb-3">Tulis Testimoni</h2>
+      <div className="flex gap-1 mb-3 text-2xl text-[#b8935f]">
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button key={n} onClick={() => setRating(n)} type="button">
+            {n <= rating ? '★' : '☆'}
+          </button>
+        ))}
+      </div>
+      <textarea
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        placeholder="Gimana pengalaman kamu tinggal di Green Loft?"
+        rows={3}
+        className="w-full px-4 py-3 border rounded-lg mb-3"
+      />
+      <button onClick={submit} disabled={submitting} className="bg-[#4CAF50] text-white px-5 py-2.5 rounded-lg font-semibold text-sm disabled:opacity-50">
+        {submitting ? 'Mengirim...' : 'Kirim Testimoni'}
+      </button>
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const router = useRouter()
   const [user, setUser] = useState<any>(null)
+  const [profileName, setProfileName] = useState('')
   const [bookings, setBookings] = useState<any[]>([])
+  const [hasTestimonial, setHasTestimonial] = useState(true) // assume yes until checked, avoids flash
   const [loading, setLoading] = useState(true)
   const [cancellingId, setCancellingId] = useState<string | null>(null)
 
@@ -52,13 +103,23 @@ export default function Dashboard() {
       return
     }
     setUser(user)
+
+    const { data: profile } = await supabase.from('users').select('name').eq('id', user.id).single()
+    setProfileName(profile?.name || '')
+
+    const { count } = await supabase
+      .from('testimonials')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+    setHasTestimonial((count || 0) > 0)
+
     fetchBookings(user.id)
   }
 
   const fetchBookings = async (userId: string) => {
     const { data } = await supabase
       .from('bookings')
-      .select('*, rooms(number, type)')
+      .select('*, rooms!room_id(number, type)')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
     setBookings(data || [])
@@ -103,6 +164,10 @@ export default function Dashboard() {
             </span>
           )}
         </div>
+      )}
+
+      {activeBooking && !hasTestimonial && user && (
+        <TestimonialForm userId={user.id} defaultName={profileName || user.email} />
       )}
 
       <h2 className="text-xl font-semibold mb-4">

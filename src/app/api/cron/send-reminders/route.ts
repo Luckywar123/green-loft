@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
 
   const { data: bookings, error } = await supabase
     .from('bookings')
-    .select('id, end_date, reminder_7_sent, reminder_3_sent, reminder_1_sent, rooms(number), users(name, email)')
+    .select('id, end_date, reminder_7_sent, reminder_3_sent, reminder_1_sent, rooms!room_id(number), users(name, email)')
     .eq('payment_status', 'paid')
 
   if (error) {
